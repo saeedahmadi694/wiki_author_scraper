@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Scraper.Presenter": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
