@@ -1,121 +1,143 @@
 ﻿using HtmlAgilityPack;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System;
 using System.Xml;
 
 namespace Scraper.Core;
 
 
-public static class ScraperCore
+public class ScraperCore
 {
-    public static async Task WikiScraper()
+    public async Task WikiScraper()
     {
-        // Set the author name for search
-        string authorName = "J. K. Rowling";
-        // Build the Wikipedia API URL for Persian Wikipedia
-        string searchUrl = $"https://fa.wikipedia.org/wiki/%D8%AC%D9%84%D8%A7%D9%84_%D8%A2%D9%84_%D8%A7%D8%AD%D9%85%D8%AF";
+        string url = "https://fa.wikipedia.org/wiki/%D8%AC%D8%B1%D8%AC_%D8%A7%D9%88%D8%B1%D9%88%D9%84";
 
-        using HttpClient client = new();
         try
         {
-            // Search for the author page
-            var searchResponse = await client.GetStringAsync(searchUrl);
-            JArray searchResult = JArray.Parse(searchResponse);
+            string html = await FetchHtml(url);
+            //string content = ExtractMainContent(html);
+            var person = ExtractInfobox(html);
 
-            // The fourth element contains the URLs of matching pages
-            if (searchResult.Count >= 4 && searchResult[3].HasValues)
-            {
-                string pageUrl = searchResult[3][0].ToString();
-                Console.WriteLine($"Found page: {pageUrl}");
-
-                // Fetch the HTML content of the page
-                var pageHtml = await client.GetStringAsync(pageUrl);
-                HtmlDocument doc = new HtmlDocument();
-                doc.LoadHtml(pageHtml);
-
-                // Create a dictionary to store author data
-                Dictionary<string, object> authorData = new Dictionary<string, object>();
-
-                // Use the page title as the "name" (commonly known name)
-                var titleNode = doc.DocumentNode.SelectSingleNode("//h1");
-                if (titleNode != null)
-                {
-                    authorData["name"] = titleNode.InnerText.Trim();
-                }
-
-                // Locate the infobox (commonly has class 'infobox')
-                var infobox = doc.DocumentNode.SelectSingleNode("//table[contains(@class, 'infobox')]");
-                if (infobox != null)
-                {
-                    // Process each row in the infobox table
-                    var rows = infobox.SelectNodes(".//tr");
-                    if (rows != null)
-                    {
-                        foreach (var row in rows)
-                        {
-                            var header = row.SelectSingleNode(".//th");
-                            var data = row.SelectSingleNode(".//td");
-                            if (header != null && data != null)
-                            {
-                                string key = header.InnerText.Trim();
-                                string value = data.InnerText.Trim();
-
-                                // Map the Persian labels to our JSON schema keys
-                                if (key.Contains("نام کامل"))
-                                {
-                                    authorData["fullName"] = value;
-                                }
-                                else if (key.Contains("تاریخ تولد"))
-                                {
-                                    authorData["birthDate"] = value;
-                                }
-                                else if (key.Contains("محل تولد"))
-                                {
-                                    authorData["birthPlace"] = value;
-                                }
-                                else if (key.Contains("ملیت"))
-                                {
-                                    authorData["nationality"] = value;
-                                }
-                                else if (key.Contains("ژانر") || key.Contains("سبک"))
-                                {
-                                    // Split by comma or Persian comma
-                                    authorData["genres"] = value.Split(new char[] { ',', '،' }, StringSplitOptions.RemoveEmptyEntries);
-                                }
-                                else if (key.Contains("آثار برجسته"))
-                                {
-                                    authorData["notableWorks"] = value.Split(new char[] { ',', '،' }, StringSplitOptions.RemoveEmptyEntries);
-                                }
-                                else if (key.Contains("جوایز"))
-                                {
-                                    authorData["awards"] = value.Split(new char[] { ',', '،' }, StringSplitOptions.RemoveEmptyEntries);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Get the first paragraph from the content area as biography
-                var paraNode = doc.DocumentNode.SelectSingleNode("//div[@class='mw-parser-output']/p");
-                if (paraNode != null)
-                {
-                    authorData["biography"] = paraNode.InnerText.Trim();
-                }
-
-                // Convert the dictionary to JSON format
-                string jsonResult = JsonConvert.SerializeObject(authorData, Newtonsoft.Json.Formatting.Indented);
-                Console.WriteLine("\nExtracted Author Data:");
-                Console.WriteLine(jsonResult);
-            }
-            else
-            {
-                Console.WriteLine("No matching page found for the given author.");
-            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"An error occurred: {ex.Message}");
+            Console.WriteLine($"❌ Error: {ex.Message}");
         }
     }
 
+    private async Task<string> FetchHtml(string url)
+    {
+        using HttpClient client = new HttpClient();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
+        return await client.GetStringAsync(url);
+    }
+
+    private PersonInfoDto ExtractInfobox(string html)
+    {
+        HtmlDocument doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var dto = new PersonInfoDto();
+
+        var table = doc.DocumentNode.SelectSingleNode("//table[contains(@class, 'infobox')]");
+
+        if (table == null)
+            return dto;
+
+        foreach (var row in table.SelectNodes(".//tr"))
+        {
+            var header = row.SelectSingleNode("./th");
+            var data = row.SelectSingleNode("./td");
+
+
+            if (header != null && header.GetAttributeValue("class", "").Contains("infobox-above"))
+            {
+                dto.Name = header.InnerText.Trim();
+                continue;
+            }
+            else if (header != null && header.GetAttributeValue("class", "").Contains("infobox-image"))
+            {
+                var img = row.SelectSingleNode(".//img");
+                var src = img?.GetAttributeValue("src", "");
+                if (!string.IsNullOrEmpty(src))
+                    dto.ImageUrl = "https:" + src;
+
+                continue;
+            }
+
+            else if(header != null && data != null)
+            {
+                string label = header.InnerText.Trim();
+                string value = data.InnerText.Trim();
+
+                switch (label)
+                {
+                    case "نام اصلی":
+                        dto.RealName = value;
+                        break;
+                    case "زاده":
+                        dto.Born = value;
+                        break;
+                    case "درگذشته":
+                        dto.Died = value;
+                        break;
+                    case "پیشه":
+                        dto.Occupation = value;
+                        break;
+                    case "ملیت":
+                        dto.Nationality = value;
+                        break;
+                    case "سبک(های) نوشتاری":
+                        dto.Genres = value;
+                        break;
+                    case "سال‌های فعالیت":
+                        dto.YearsActive = value;
+                        break;
+                }
+            }
+
+        }
+
+
+        Console.WriteLine($"Name: {dto.Name}");
+        Console.WriteLine($"Image: {dto.ImageUrl}");
+        Console.WriteLine($"Real Name: {dto.RealName}");
+        Console.WriteLine($"Born: {dto.Born}");
+        Console.WriteLine($"Died: {dto.Died}");
+        Console.WriteLine($"Occupation: {dto.Occupation}");
+        Console.WriteLine($"Nationality: {dto.Nationality}");
+        Console.WriteLine($"Genres: {dto.Genres}");
+        Console.WriteLine($"Years Active: {dto.YearsActive}");
+
+        return dto;
+    }
+    static string ExtractMainContent(string html)
+    {
+        HtmlDocument doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var contentNode = doc.DocumentNode.SelectSingleNode("//ul[@id='mw-panel-toc-list']");
+
+        if (contentNode == null)
+            throw new Exception("Main content not found.");
+
+        // Get all paragraph texts
+        var paragraphs = contentNode.SelectNodes(".//p");
+
+        if (paragraphs == null)
+            return "No content found.";
+
+        string result = "";
+        foreach (var p in paragraphs)
+        {
+            string text = p.InnerText.Trim();
+            if (!string.IsNullOrEmpty(text))
+            {
+                result += text + "\n\n";
+            }
+        }
+
+        return result;
+    }
 }

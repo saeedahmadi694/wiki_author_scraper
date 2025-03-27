@@ -3,4 +3,5 @@
 using Scraper.Core;
 
 Console.WriteLine("Hello, World!");
-await ScraperCore.WikiScraper();
+var scraper = new ScraperCore();
+await scraper.WikiScraper();
