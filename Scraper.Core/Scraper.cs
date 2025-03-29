@@ -1,7 +1,9 @@
 ﻿using HtmlAgilityPack;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Scraper.Core.Models;
 using System;
+using System.Text;
 using System.Xml;
 
 namespace Scraper.Core;
@@ -9,16 +11,16 @@ namespace Scraper.Core;
 
 public class ScraperCore
 {
-    public async Task WikiScraper()
+
+    public async Task WikiScraper(string firstName, string lastName)
     {
-        string url = "https://fa.wikipedia.org/wiki/%D8%AC%D8%B1%D8%AC_%D8%A7%D9%88%D8%B1%D9%88%D9%84";
+        string url = "https://fa.wikipedia.org/wiki/";
 
         try
         {
             string html = await FetchHtml(url);
-            //string content = ExtractMainContent(html);
             var person = ExtractInfobox(html);
-
+            var description = ExtractParagraphsAfterInfobox(html);
         }
         catch (Exception ex)
         {
@@ -66,7 +68,7 @@ public class ScraperCore
                 continue;
             }
 
-            else if(header != null && data != null)
+            else if (header != null && data != null)
             {
                 string label = header.InnerText.Trim();
                 string value = data.InnerText.Trim();
@@ -94,6 +96,12 @@ public class ScraperCore
                     case "سال‌های فعالیت":
                         dto.YearsActive = value;
                         break;
+                    case "دانشگاه":
+                        dto.University = value;
+                        break;
+                    case "کار(های) برجسته":
+                        dto.Books = value;
+                        break;
                 }
             }
 
@@ -112,32 +120,32 @@ public class ScraperCore
 
         return dto;
     }
-    static string ExtractMainContent(string html)
+
+    private string ExtractParagraphsAfterInfobox(string html)
     {
+        var description = new StringBuilder();
         HtmlDocument doc = new HtmlDocument();
         doc.LoadHtml(html);
 
-        var contentNode = doc.DocumentNode.SelectSingleNode("//ul[@id='mw-panel-toc-list']");
+        var contentDiv = doc.DocumentNode
+            .SelectSingleNode("//div[contains(@class, 'mw-parser-output')]");
 
-        if (contentNode == null)
-            throw new Exception("Main content not found.");
-
-        // Get all paragraph texts
-        var paragraphs = contentNode.SelectNodes(".//p");
-
-        if (paragraphs == null)
-            return "No content found.";
-
-        string result = "";
-        foreach (var p in paragraphs)
+        if (contentDiv == null)
         {
-            string text = p.InnerText.Trim();
-            if (!string.IsNullOrEmpty(text))
-            {
-                result += text + "\n\n";
-            }
+            Console.WriteLine("Content div not found.");
+            return "";
         }
 
-        return result;
+        foreach (var node in contentDiv.ChildNodes)
+        {
+
+            if (node.Name == "div" && node.Attributes.Any(r => r.Value.Contains("mw-heading mw-heading2")))
+                break;
+            if (node.Name == "p")
+                description.AppendLine(node.InnerText.Trim());
+
+        }
+        return description.ToString();
+
     }
 }
